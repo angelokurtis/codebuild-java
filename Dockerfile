@@ -12,9 +12,11 @@ ENV DIND_COMMIT="3b5fac462d21ca164b3778647420016315289034" \
     MAVEN_CONFIG="/root/.m2" \
     MAVEN_DOWNLOAD_SHA1="22cac91b3557586bb1eba326f2f7727543ff15e3" \
     MAVEN_HOME="/opt/maven" \
-    MAVEN_VERSION=3.5.4
+    MAVEN_VERSION=3.5.4 \
+    PROPERTIES_COMMON_VERSION=0.92.37.8 \
+    PYTHON_TOOL_VERSION="3.3-*"
 
-# Install git, SSH, OpenJDK 8, Maven and other utilities
+# Install git, SSH, and other utilities
 RUN set -ex \
     && echo 'Acquire::CompressionTypes::Order:: "gz";' > /etc/apt/apt.conf.d/99use-gzip-compression \
     && apt-get update \
@@ -52,18 +54,7 @@ RUN set -ex \
        libio-pty-perl=1:1.08-* libserf-1-1=1.3.* libsvn-perl=1.8.* libsvn1=1.8.* libtcl8.6=8.6.* libtimedate-perl=2.3000-* \
        libunistring0=0.9.* libxml2-utils=2.9.* libyaml-perl=0.84-* python-bzrlib=2.6.* python-configobj=4.7.* \
        sgml-base=1.26+* sgml-data=2.0.* subversion=1.8.* tcl=8.6.* tcl8.6=8.6.* xml-core=0.13+* xmlto=0.0.* xsltproc=1.1.* python3-pip \
-       tk=8.6.* gettext=0.18.* gettext-base=0.18.* libapr1=1.5.* libaprutil1=1.5.* libasprintf0c2=0.18.*  \
-    && apt-get install -y openjdk-${JAVA_VERSION}-jdk=$JDK_VERSION \
-    && apt-get install -y --no-install-recommends ca-certificates-java \
-    && update-ca-certificates -f \
-    && mkdir -p $MAVEN_HOME \
-    && curl -LSso /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz https://apache.org/dist/maven/maven-3/$MAVEN_VERSION/binaries/apache-maven-$MAVEN_VERSION-bin.tar.gz \
-    && echo "$MAVEN_DOWNLOAD_SHA1 /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz" | sha1sum -c - \
-    && tar xzvf /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz -C $MAVEN_HOME --strip-components=1 \
-    && update-alternatives --install /usr/bin/mvn mvn /opt/maven/bin/mvn 10000 \
-    && mkdir -p $MAVEN_CONFIG \
-    && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-    && apt-get clean
+       tk=8.6.* gettext=0.18.* gettext-base=0.18.* libapr1=1.5.* libaprutil1=1.5.* libasprintf0c2=0.18.*
 
 # Download and set up GitVersion
 RUN set -ex \
@@ -92,9 +83,33 @@ RUN set -ex \
 # Ensure docker-compose works
     && docker-compose version
 
-# Install dependencies by all python images equivalent to buildpack-deps:jessie
-# on the public repos.
+# Install OpenJDK 8
+RUN set -ex \
+    && apt-get update \
+    && apt-get install -y software-properties-common=$PROPERTIES_COMMON_VERSION \
+    && add-apt-repository -y ppa:openjdk-r/ppa \
+    && apt-get update \
+    && apt-get install -y python-setuptools=$PYTHON_TOOL_VERSION \
+    && apt-get install -y openjdk-${JAVA_VERSION}-jdk=$JDK_VERSION \
+    && apt-get install -y --no-install-recommends ca-certificates-java \
+    # Ensure Java cacerts symlink points to valid location
+    && update-ca-certificates -f
 
+# Install Maven
+RUN set -ex \
+    && mkdir -p $MAVEN_HOME \
+    && curl -LSso /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz https://apache.org/dist/maven/maven-3/$MAVEN_VERSION/binaries/apache-maven-$MAVEN_VERSION-bin.tar.gz \
+    && echo "$MAVEN_DOWNLOAD_SHA1 /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz" | sha1sum -c - \
+    && tar xzvf /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz -C $MAVEN_HOME --strip-components=1 \
+    && update-alternatives --install /usr/bin/mvn mvn /opt/maven/bin/mvn 10000 \
+    && mkdir -p $MAVEN_CONFIG
+
+# Cleanup
+RUN set -ex \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && apt-get clean
+
+# Install dependencies by all python images equivalent to buildpack-deps:jessie on the public repos.
 RUN set -ex \
     && pip3 install awscli boto3
 
@@ -103,5 +118,6 @@ VOLUME /var/lib/docker
 # Configure SSH
 COPY ssh_config /root/.ssh/config
 
-COPY dockerd-entrypoint.sh /usr/local/bin/
+COPY m2-settings.xml $MAVEN_CONFIG/settings.xml
 
+COPY dockerd-entrypoint.sh /usr/local/bin/
